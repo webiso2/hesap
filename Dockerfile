@@ -7,7 +7,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Bağımlılıkları kopyalayıp yüklüyoruz
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install
+RUN pnpm install --no-frozen-lockfile --ignore-scripts=false
 
 # Tüm kodu kopyalayıp build alıyoruz
 COPY . .
