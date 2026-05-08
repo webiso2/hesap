@@ -198,13 +198,28 @@ const SalesModule: React.FC<SalesModuleProps> = ({ onClose }) => {
             // 4. Müşteri Borcunu Güncelle
             await supabase.rpc('update_customer_debt', { customer_id_input: saleToDelete.customer_id });
 
+            // 5. Servis Bağlantısı Varsa Durumu Geri Al (Data Consistency Fix)
+            if (saleToDelete.related_service_id) {
+                const { error: serviceUpdateError } = await supabase
+                    .from('services')
+                    .update({ status: 'in_progress' }) // Servisi tekrar işleme al
+                    .eq('id', saleToDelete.related_service_id);
+
+                if (serviceUpdateError) {
+                    console.error("Servis durumu güncellenemedi:", serviceUpdateError);
+                    toast({ title: "Uyarı", description: "Satış silindi ancak servis durumu güncellenemedi.", variant: "default" });
+                } else {
+                    toast({ title: "Bilgi", description: "İlgili servis durumu 'İşlemde' olarak güncellendi." });
+                }
+            }
 
             const stockSuccess = await deleteSaleAndReturnStockInternal(saleId, saleToDelete.is_stockless, saleToDelete.items);
             await queryClient.invalidateQueries({ queryKey: ['sales'], refetchType: 'all' });
             if (stockSuccess) toast({ title: "Başarılı", description: "Satış ve ilgili işlemler silindi." });
             else toast({ title: "Uyarı", description: "Satış silindi, stok iadesinde sorunlar olabilir.", variant: "destructive" });
-        } catch (error: any) {
-            toast({ title: "Hata", description: error.message, variant: "destructive" });
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Bilinmeyen bir hata oluştu";
+            toast({ title: "Hata", description: errorMessage, variant: "destructive" });
         } finally { setIsProcessingSale(false); }
     };
 

@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+Dockerfile
+PROJE_INCELEME_RAPORU.md
+README.md
+*.bat
+*.ps1
+build_log.txt
+pnpm-lock.yaml.old
+package-lock.json

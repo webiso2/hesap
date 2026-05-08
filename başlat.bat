@@ -3,22 +3,22 @@ setlocal
 
 echo Proje baslatiliyor...
 
-REM node_modules klasoru yoksa npm install calistir
+REM node_modules klasoru yoksa pnpm install calistir
 if not exist "node_modules" (
-    echo node_modules bulunamadi, npm install calistiriliyor...
-    call npm install
+    echo node_modules bulunamadi, pnpm install calistiriliyor...
+    call pnpm install
     if errorlevel 1 (
-        echo npm install basarisiz oldu!
+        echo pnpm install basarisiz oldu!
         pause
         exit /b 1
     )
 ) else (
-    echo node_modules zaten mevcut, npm install atlandi.
+    echo node_modules zaten mevcut, pnpm install atlandi.
 )
 
-REM npm run dev calistir (arka planda baslatmak icin start kullanilir)
-echo npm run dev calistiriliyor...
-start cmd /c npm run dev
+REM pnpm run dev calistir (arka planda baslatmak icin start kullanilir)
+echo pnpm run dev calistiriliyor...
+start cmd /c pnpm run dev
 
 REM localhost:8080 adresini ac
 echo Tarayici aciliyor...

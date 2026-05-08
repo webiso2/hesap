@@ -1,7 +1,5 @@
-// --- START OF FILE src/pages/Index.tsx ---
-
 import React, { useState, useEffect } from 'react';
-import { User, Database, DollarSign, ShoppingCart, FileText, Archive, Settings, Package, Banknote, Truck, LogOut, Loader2, Sliders } from "lucide-react";
+import { User, Database, DollarSign, ShoppingCart, FileText, Archive, Settings, Package, Banknote, Truck, LogOut, Loader2, Sliders, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import CustomerModule from "@/components/CustomerModule";
@@ -21,12 +19,48 @@ import Dashboard from "@/components/Dashboard";
 import { supabase } from '@/integrations/supabase/client';
 import type { Session } from '@supabase/supabase-js';
 
+import PriceCalculatorModule from "@/components/PriceCalculatorModule";
+import VoiceControl from "@/components/voice/VoiceControl";
+
 const Index = () => {
   const [activeModule, setActiveModule] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const { toast } = useToast();
+
+  const handleVoiceCommand = (command: string) => {
+    const cmd = command.toLowerCase().trim();
+
+    // Modül Navigasyonu (Tam eşleşme kullanarak çakışmaları önleyelim)
+    const isCustomer = cmd === 'müşteri' || cmd === 'müşteriler' || cmd === 'müşteri ekle' || cmd === 'kullanıcılar' || cmd === 'müşteri modülü';
+    const isSales = cmd === 'satış' || cmd === 'satışlar' || cmd === 'satış modülü' || cmd === 'satış ekle';
+    const isService = cmd === 'servis' || cmd === 'servisler' || cmd === 'servis modülü' || cmd === 'servis ekle' || cmd === 'teknik servis';
+    const isStock = cmd === 'stok' || cmd === 'stoklar' || cmd === 'stok modülü';
+    const isCashier = cmd === 'kasa' || cmd === 'kasa modülü';
+    const isWholesaler = cmd === 'toptancı' || cmd === 'toptancılar' || cmd === 'toptancı modülü';
+    const isReports = cmd === 'raporlar' || cmd === 'rapor modülü';
+    const isNeeds = cmd === 'ihtiyaçlar' || cmd === 'ihtiyaç modülü';
+    const isAccounts = cmd === 'hesaplar' || cmd === 'hesap modülü';
+    const isBackup = cmd === 'yedek' || cmd === 'yedekleme' || cmd === 'yedek modülü';
+    const isSettings = cmd === 'ayarlar' || cmd === 'ayar' || cmd === 'ayarlar modülü';
+    const isCalculator = cmd === 'hesapla' || cmd === 'hesap makinesi' || cmd.includes('fiyat modülü') || cmd === 'fiyatlar';
+    const isHome = cmd === 'ana sayfa' || cmd === 'modülü kapat' || cmd === 'geri dön' || cmd === 'çıkış yap';
+
+    if (isCustomer) setActiveModule('customer');
+    else if (isSales) setActiveModule('sales');
+    else if (isService) setActiveModule('service');
+    else if (isStock) setActiveModule('stock');
+    else if (isCashier) setActiveModule('cashier');
+    else if (isWholesaler) setActiveModule('wholesaler');
+    else if (isReports) setActiveModule('reports');
+    else if (isNeeds) setActiveModule('needs');
+    else if (isAccounts) setActiveModule('accounts');
+    else if (isBackup) setActiveModule('backup');
+    else if (isSettings) setActiveModule('settings');
+    else if (isCalculator) setActiveModule('calculator');
+    else if (isHome) setActiveModule(null);
+  };
 
   useEffect(() => {
     setAuthLoading(true);
@@ -76,6 +110,7 @@ const Index = () => {
       case 'wholesaler': return <WholesalerModule onClose={() => setActiveModule(null)} />;
       case 'backup': return <BackupModule onClose={() => setActiveModule(null)} />;
       case 'settings': return <SettingsModule onClose={() => setActiveModule(null)} />;
+      case 'calculator': return <PriceCalculatorModule onClose={() => setActiveModule(null)} />;
       default: return <Dashboard onModuleSelect={setActiveModule} />;
     }
   };
@@ -95,6 +130,7 @@ const Index = () => {
 
   return (
     <div className="h-screen w-screen bg-background text-foreground flex overflow-hidden font-inter">
+      <VoiceControl onCommand={handleVoiceCommand} activeModule={activeModule} />
       {/* Sidebar - Desktop */}
       <div className="hidden md:flex w-64 flex-col glass-panel border-r border-white/10 z-20">
         <div className="p-4 flex items-center gap-2 border-b border-white/10">
@@ -116,6 +152,8 @@ const Index = () => {
           <ModuleButton icon={<Banknote className="w-4 h-4" />} label="Hesaplar" active={activeModule === 'accounts'} onClick={() => setActiveModule('accounts')} />
           <ModuleButton icon={<Archive className="w-4 h-4" />} label="Yedekleme" active={activeModule === 'backup'} onClick={() => setActiveModule('backup')} />
           <ModuleButton icon={<Sliders className="w-4 h-4" />} label="Ayarlar" active={activeModule === 'settings'} onClick={() => setActiveModule('settings')} />
+          <div className="my-2 border-t border-white/10 mx-2"></div>
+          <ModuleButton icon={<Calculator className="w-4 h-4" />} label="Fiyat Hesapla" active={activeModule === 'calculator'} onClick={() => setActiveModule('calculator')} />
         </div>
 
         <div className="p-4 border-t border-white/10">
@@ -149,6 +187,7 @@ const Index = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 bg-transparent relative overflow-hidden">
+
         {/* Mobile Menu (Bottom Navigation) */}
         <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 glass-panel border-t border-white/10 z-30 flex items-center justify-around px-2 pb-safe">
           <Button variant="ghost" size="icon" className={`flex flex-col gap-1 h-full w-14 rounded-none ${!activeModule ? 'text-blue-400' : 'text-gray-400'}`} onClick={() => setActiveModule(null)}>
@@ -167,9 +206,9 @@ const Index = () => {
             <Settings className="h-5 w-5" />
             <span className="text-[10px]">Servis</span>
           </Button>
-          <Button variant="ghost" size="icon" className={`flex flex-col gap-1 h-full w-14 rounded-none ${activeModule === 'settings' ? 'text-blue-400' : 'text-gray-400'}`} onClick={() => setActiveModule('settings')}>
-            <Sliders className="h-5 w-5" />
-            <span className="text-[10px]">Diğer</span>
+          <Button variant="ghost" size="icon" className={`flex flex-col gap-1 h-full w-14 rounded-none ${activeModule === 'calculator' ? 'text-blue-400' : 'text-gray-400'}`} onClick={() => setActiveModule('calculator')}>
+            <Calculator className="h-5 w-5" />
+            <span className="text-[10px]">Hsp.</span>
           </Button>
         </div>
 
@@ -181,7 +220,7 @@ const Index = () => {
                 <Button variant="ghost" onClick={() => setActiveModule(null)} className="text-gray-400 hover:text-white pl-0">
                   ← Geri Dön
                 </Button>
-                <h2 className="font-bold text-white capitalize">{activeModule}</h2>
+                <h2 className="font-bold text-white capitalize">{activeModule === 'calculator' ? 'Hesaplama' : activeModule}</h2>
               </div>
             )}
             <div className="h-full glass-card overflow-hidden animate-in fade-in duration-300">
@@ -195,4 +234,3 @@ const Index = () => {
 };
 
 export default Index;
-// --- END OF FILE src/pages/Index.tsx ---

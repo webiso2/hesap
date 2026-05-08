@@ -1,6 +1,6 @@
 // --- START OF FILE src/ServiceModule.tsx ---
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, Wrench, Plus, Loader2, CheckCircle, Clock, XCircle, Info, ListFilter, UserPlus, AlertCircle } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -119,9 +119,30 @@ const ServiceModule: React.FC<ServiceModuleProps> = ({ onClose }) => {
 
   useEffect(() => { fetchData(true); }, [fetchData]);
 
+
+
   const serviceCounts = useMemo(() => { const counts: { [key in Service['status'] | 'all']: number } = { pending: 0, in_progress: 0, completed: 0, cancelled: 0, all: services?.length ?? 0 }; if (Array.isArray(services)) { services.forEach(service => { if (service?.status && counts[service.status] !== undefined) { counts[service.status]++; } }); } return counts; }, [services]);
 
   const openNewServiceDialog = () => { setEditingService(null); setIsServiceDialogOpen(true); };
+
+  const openNewServiceDialogRef = useRef(openNewServiceDialog);
+  openNewServiceDialogRef.current = openNewServiceDialog;
+
+  useEffect(() => {
+    const handleVoiceCommand = (e: any) => {
+      const { command, handledByButton } = e.detail;
+      if (handledByButton) return;
+
+      const cmd = command.toLowerCase().trim();
+
+      if (cmd.includes('servis ekle') || cmd.includes('yeni servis')) {
+        openNewServiceDialogRef.current();
+      }
+    };
+
+    window.addEventListener('voice-command', handleVoiceCommand as any);
+    return () => window.removeEventListener('voice-command', handleVoiceCommand as any);
+  }, []);
   const openEditServiceDialog = (service: Service) => { setEditingService(service); setIsServiceDialogOpen(true); };
   const handleCloseServiceDialog = (refreshNeeded?: boolean) => { setIsServiceDialogOpen(false); setEditingService(null); if (refreshNeeded) { fetchData(false); } };
   const handleServiceSaved = (savedService: Service) => { const customer = customers.find(c => c.id === savedService.customer_id); const serviceWithCorrectName = { ...savedService, customerName: customer?.name || '?' }; setServices(prev => { const index = prev.findIndex(s => s.id === serviceWithCorrectName.id); if (index > -1) { const updated = [...prev]; updated[index] = serviceWithCorrectName; return updated; } else { return [serviceWithCorrectName, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); } }); handleCloseServiceDialog(false); const isNew = !editingService; if (isNew) { setTimeout(() => { if (window.confirm("Servis kaydı oluşturuldu. Fişi yazdırmak ister misiniz?")) { if (customer) { printServiceRecord(serviceWithCorrectName, customer); } else { printServiceRecord(serviceWithCorrectName); } } }, 100); } };
@@ -211,7 +232,7 @@ const ServiceModule: React.FC<ServiceModuleProps> = ({ onClose }) => {
                 onDeleteService={handleDeleteServiceCallback}
                 onEditService={openEditServiceDialog}
                 isLoading={false}
-                fetchServices={() => fetchData(false)}
+                fetchServices={async () => { await fetchData(false); }}
                 activeFilter={statusFilter}
               />
             )}
@@ -221,7 +242,7 @@ const ServiceModule: React.FC<ServiceModuleProps> = ({ onClose }) => {
 
       <EditServiceDialog
         isOpen={isServiceDialogOpen}
-        setIsOpen={handleCloseServiceDialog}
+        setIsOpen={(open, refresh) => handleCloseServiceDialog(refresh as boolean)}
         editingService={editingService}
         onServiceSaved={handleServiceSaved}
         customers={customers}

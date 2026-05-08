@@ -120,11 +120,11 @@ export const downloadBackupFromStorage = async (storagePath: string): Promise<{ 
 export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{ success: boolean; error: Error | null }> => {
     console.log("[restoreBackupToSupabase] Başladı...");
 
-    // Silme Sırası (Güncellendi): Bağımlılıkları olanlar önce
+    // Silme Sırası (Güncellendi): Bağımlılıkları olanlar (çocuklar) önce silinmeli
     const tablesToDeleteOrder = [
-        'account_transactions',     // En bağımlı (diğer transactionlara bağlı olabilir)
-        'wholesaler_transactions',  // purchase_invoices, account_transactions bağlı
-        'customer_transactions',
+        'wholesaler_transactions',  // account_transactions ve purchase_invoices'a bağlı
+        'customer_transactions',    // account_transactions'a bağlı
+        'account_transactions',     // sales, services vb. bağlı
         'purchase_invoices',        // wholesalers, products bağlı
         'sales',                    // customers, products bağlı
         'services',                 // customers bağlı
@@ -137,7 +137,7 @@ export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{
         'expense_categories'        // Temel (varsa)
     ];
 
-    // Ekleme Sırası (Güncellendi): Bağımsızlar ve temeller önce
+    // Ekleme Sırası (Güncellendi): Bağımsızlar ve temeller (ebeveynler) önce eklenmeli
     const tablesToInsertOrder = [
         'customers',                // Temel
         'accounts',                 // Temel
@@ -149,9 +149,9 @@ export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{
         'services',                 // customers bağlı
         'sales',                    // customers, products bağlı
         'purchase_invoices',        // wholesalers, products bağlı
-        'customer_transactions',    // customers bağlı
-        'wholesaler_transactions',  // wholesalers, purchase_invoices bağlı
-        'account_transactions'      // accounts, sales, services, cust_tx, whol_tx bağlı
+        'account_transactions',     // <--- ÖNCE KASA İŞLEMLERİ (Transaction'ların temeli)
+        'customer_transactions',    // customers, account_transactions bağlı
+        'wholesaler_transactions'   // wholesalers, purchase_invoices, account_transactions bağlı
     ];
 
     // Yedekteki geçerli ID'leri topla (Yeni tablolar eklendi)
@@ -161,10 +161,10 @@ export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{
     const validWholesalerIds = new Set<string>(); backupData.wholesalers?.forEach((w: any) => { if (w?.id) validWholesalerIds.add(w.id); });
     const validSaleIds = new Set<string>(); backupData.sales?.forEach((s: any) => { if (s?.id) validSaleIds.add(s.id); });
     const validServiceIds = new Set<string>(); backupData.services?.forEach((s: any) => { if (s?.id) validServiceIds.add(s.id); });
+    const validAccountTxIds = new Set<string>(); backupData.account_transactions?.forEach((at: any) => { if (at?.id) validAccountTxIds.add(at.id); }); // Eklendi
     const validCustomerTxIds = new Set<string>(); backupData.customer_transactions?.forEach((ct: any) => { if (ct?.id) validCustomerTxIds.add(ct.id); });
     const validPurchaseInvoiceIds = new Set<string>(); backupData.purchase_invoices?.forEach((pi: any) => { if (pi?.id) validPurchaseInvoiceIds.add(pi.id); });
     const validWholesalerTxIds = new Set<string>(); backupData.wholesaler_transactions?.forEach((wt: any) => { if (wt?.id) validWholesalerTxIds.add(wt.id); });
-    // Expense categories ID'leri de alınabilir (opsiyonel)
     const validExpenseCategoryIds = new Set<string>(); backupData.expense_categories?.forEach((ec: any) => { if (ec?.id) validExpenseCategoryIds.add(ec.id); });
 
 
@@ -184,17 +184,19 @@ export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{
     if (!checkFK(backupData.services, 'customer_id', validCustomerIds, 'services', 'customer_id') ||
         !checkFK(backupData.sales, 'customer_id', validCustomerIds, 'sales', 'customer_id') ||
         !checkFK(backupData.customer_transactions, 'customer_id', validCustomerIds, 'customer_transactions', 'customer_id') ||
-        !checkFK(backupData.needs, 'customer_id', validCustomerIds, 'needs', 'customer_id') || // Needs için de eklendi
+        !checkFK(backupData.customer_transactions, 'related_account_tx_id', validAccountTxIds, 'customer_transactions', 'related_account_tx_id') || // Eklendi
+        !checkFK(backupData.needs, 'customer_id', validCustomerIds, 'needs', 'customer_id') ||
         !checkFK(backupData.needs, 'product_id', validProductIds, 'needs', 'product_id') ||
         !checkFK(backupData.purchase_invoices, 'wholesaler_id', validWholesalerIds, 'purchase_invoices', 'wholesaler_id') ||
         !checkFK(backupData.wholesaler_transactions, 'wholesaler_id', validWholesalerIds, 'wholesaler_transactions', 'wholesaler_id') ||
         !checkFK(backupData.wholesaler_transactions, 'related_purchase_invoice_id', validPurchaseInvoiceIds, 'wholesaler_transactions', 'related_purchase_invoice_id') ||
+        !checkFK(backupData.wholesaler_transactions, 'related_account_tx_id', validAccountTxIds, 'wholesaler_transactions', 'related_account_tx_id') || // Eklendi
         !checkFK(backupData.account_transactions, 'account_id', validAccountIds, 'account_transactions', 'account_id') ||
         !checkFK(backupData.account_transactions, 'related_sale_id', validSaleIds, 'account_transactions', 'related_sale_id') ||
         !checkFK(backupData.account_transactions, 'related_service_id', validServiceIds, 'account_transactions', 'related_service_id') ||
         !checkFK(backupData.account_transactions, 'related_customer_tx_id', validCustomerTxIds, 'account_transactions', 'related_customer_tx_id') ||
-        !checkFK(backupData.account_transactions, 'related_wholesaler_transaction_id', validWholesalerTxIds, 'account_transactions', 'related_wholesaler_transaction_id') || // Wholesaler TX eklendi
-        !checkFK(backupData.account_transactions, 'expense_category_id', validExpenseCategoryIds, 'account_transactions', 'expense_category_id') // Expense Category eklendi (varsa)
+        !checkFK(backupData.account_transactions, 'related_wholesaler_transaction_id', validWholesalerTxIds, 'account_transactions', 'related_wholesaler_transaction_id') ||
+        !checkFK(backupData.account_transactions, 'expense_category_id', validExpenseCategoryIds, 'account_transactions', 'expense_category_id')
        )
      {
         return { success: false, error: new Error("Yedek dosyası ilişkisel olarak tutarsız. Konsol loglarını kontrol edin.") };

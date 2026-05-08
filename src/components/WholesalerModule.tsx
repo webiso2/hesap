@@ -9,10 +9,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { Wholesaler, Account, Product } from "@/types/backup";
 import { cn } from "@/lib/utils";
-import WholesalerFormDialog from './wholesaler/WholesalerFormDialog';
-import WholesalerPaymentDialog from './wholesaler/WholesalerPaymentDialog';
-import WholesalerTransactionDialog from './wholesaler/WholesalerTransactionDialog';
-import PurchaseInvoiceDialog from './wholesaler/PurchaseInvoiceDialog';
+import WholesalerFormDialog from './Wholesaler/WholesalerFormDialog';
+import WholesalerPaymentDialog from './Wholesaler/WholesalerPaymentDialog';
+import WholesalerTransactionDialog from './Wholesaler/WholesalerTransactionDialog';
+import PurchaseInvoiceDialog from './Wholesaler/PurchaseInvoiceDialog';
 import * as XLSX from 'xlsx';
 import { processAndSavePriceList, PriceListItem } from '@/utils/excelUtils';
 

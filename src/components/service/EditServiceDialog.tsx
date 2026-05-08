@@ -55,7 +55,9 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { completeServiceProcess } from "@/utils/serviceUtils";
+import ServicePaymentPanel from "./ServicePaymentPanel";
 import { cn } from "@/lib/utils";
+import { cleanVoiceValue, isDeleteIntent, capitalizeText } from "@/utils/voiceUtils";
 
 interface EditServiceDialogProps {
   isOpen: boolean;
@@ -110,9 +112,6 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   // Payments State
   const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<AccountTransaction[]>([]);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentAccountId, setPaymentAccountId] = useState("");
-  const [paymentDescription, setPaymentDescription] = useState("Servis ödemesi / Kapora");
   const [isAddingPayment, setIsAddingPayment] = useState(false);
 
   const isNewRecord = useMemo(() => !editingService, [editingService]);
@@ -134,14 +133,14 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         solution: editingService.solution || "",
         status: (editingService.status as Service["status"]) || "pending",
       } : {
-        deviceType: "phone",
+        deviceType: "Telefon",
         brand: "",
         model: "",
         serialNumber: "",
         problem: "",
         diagnosis: "",
         solution: "",
-        status: "pending",
+        status: "pending" as Service["status"],
       };
 
       const initialCustomerId = editingService?.customer_id ? String(editingService.customer_id) : "";
@@ -204,14 +203,10 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     return [...transactions, ...pendingTransactions];
   }, [transactions, pendingTransactions]);
 
-  const handleAddPayment = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) { toast({ title: "Uyarı", description: "Geçerli bir tutar girin.", variant: "destructive" }); return; }
-    if (!paymentAccountId) { toast({ title: "Uyarı", description: "Hesap seçin.", variant: "destructive" }); return; }
-
+  const handleAddPayment = async (amount: number, accountId: string, description: string) => {
     setIsAddingPayment(true);
     try {
-      const amount = parseFloat(paymentAmount);
-      const selectedAccount = accounts.find(a => a.id === paymentAccountId);
+      const selectedAccount = accounts.find(a => a.id === accountId);
 
       // If it's a NEW record, we don't save to DB yet. We just add to a pending list.
       if (isNewRecord) {
@@ -219,11 +214,11 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           id: `temp-${Date.now()}`,
           created_at: new Date().toISOString(),
           date: new Date().toISOString(),
-          account_id: paymentAccountId,
+          account_id: accountId,
           type: 'income',
           amount: amount,
           balance_after: (selectedAccount?.current_balance || 0) + amount, // Approximate visualization
-          description: paymentDescription,
+          description: description,
           related_service_id: null,
           related_sale_id: null,
           related_customer_tx_id: null,
@@ -233,8 +228,6 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
         setPendingTransactions(prev => [tempTx, ...prev]);
         toast({ title: "Eklendi", description: "Ödeme taslağa eklendi. Servis oluşturulduğunda işlenecek.", variant: "default" });
-        setPaymentAmount("");
-        setPaymentDescription("Servis ödemesi / Kapora");
         setIsAddingPayment(false);
         return;
       }
@@ -244,7 +237,7 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
       // 1. Update Account Balance via RPC
       const { error: rpcError } = await supabase.rpc('increment_account_balance', {
-        account_id_input: paymentAccountId,
+        account_id_input: accountId,
         balance_change: amount
       });
       if (rpcError) throw new Error(`Bakiye güncelleme hatası: ${rpcError.message}`);
@@ -252,11 +245,11 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       // 2. Insert Transaction
       const { data: insertedTx, error: txError } = await supabase.from('account_transactions').insert({
         date: new Date().toISOString(),
-        account_id: paymentAccountId,
+        account_id: accountId,
         type: 'income',
         amount: amount,
         balance_after: (selectedAccount?.current_balance || 0) + amount,
-        description: paymentDescription,
+        description: description,
         related_service_id: editingService.id,
         related_sale_id: null
       }).select().single();
@@ -264,8 +257,6 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       if (txError) throw txError;
 
       toast({ title: "Başarılı", description: "Ödeme alındı." });
-      setPaymentAmount("");
-      setPaymentDescription("Servis ödemesi / Kapora");
       fetchTransactions(editingService.id);
 
       // --- YENİ: Müşteri Borç/Alacak Kaydı (Tahsilat) ---
@@ -282,7 +273,7 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           type: 'payment',
           amount: -amount, // Tahsilat negatif
           balance: newDebt,
-          description: paymentDescription || 'Servis Ödemesi'
+          description: description || 'Servis Ödemesi'
         });
 
         // 4. Müşteri Bakiyesi Güncelle
@@ -445,14 +436,184 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       onServiceSaved(serviceToReturn, isNewRecord);
       toast({ title: "Başarılı", description: `Servis ${isNewRecord ? 'oluşturuldu' : 'güncellendi'}.` });
 
-    } catch (error: any) {
-      // ... handle error
-      console.error("Kaydetme hatası:", error);
-      toast({ title: "Hata", description: `Kaydedilemedi: ${error.message}`, variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
   };
+
+  const handleSaveRef = useRef(handleSave);
+  const setIsOpenRef = useRef(setIsOpen);
+  const handleSelectChangeRef = useRef(handleSelectChange);
+  const handleStatusChangeRef = useRef(handleStatusChange);
+  const customersRef = useRef(customers);
+  const toastRef = useRef(toast);
+
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+    setIsOpenRef.current = setIsOpen;
+    handleSelectChangeRef.current = handleSelectChange;
+    handleStatusChangeRef.current = handleStatusChange;
+    customersRef.current = customers;
+    toastRef.current = toast;
+  }, [handleSave, setIsOpen, handleSelectChange, handleStatusChange, customers, toast]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleVoiceCommand = (e: any) => {
+      const { command, handledByButton } = e.detail;
+      if (handledByButton) return;
+
+      const cmd = command.toLowerCase().trim();
+      console.log("EditServiceDialog'da işleniyor:", cmd);
+
+      // --- SİLME / TEMİZLEME KOMUTLARI ---
+      if (isDeleteIntent(cmd, ['marka'])) {
+        setFormData(prev => ({ ...prev, brand: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Marka silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['model'])) {
+        setFormData(prev => ({ ...prev, model: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Model silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['seri no', 'seri numarası'])) {
+        setFormData(prev => ({ ...prev, serialNumber: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Seri No silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['şikayet', 'sorun'])) {
+        setFormData(prev => ({ ...prev, problem: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Şikayet silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['teşhis', 'tanı'])) {
+        setFormData(prev => ({ ...prev, diagnosis: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Teşhis silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['işlem', 'not'])) {
+        setFormData(prev => ({ ...prev, solution: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "İşlem/Not silindi." });
+        return;
+      }
+
+      // --- VERİ GİRİŞ KOMUTLARI ---
+
+      // Müşteri Seçimi
+      if (cmd.startsWith('müşteri')) {
+        const searchTerms = cleanVoiceValue(command, ['müşteri']);
+        if (searchTerms.length >= 2) {
+          const found = customersRef.current.find(c =>
+            c.name.toLowerCase().includes(searchTerms) ||
+            searchTerms.includes(c.name.toLowerCase())
+          );
+          if (found) {
+            setCustomerId(String(found.id));
+            toastRef.current({ title: "Müşteri Seçildi", description: found.name });
+            return;
+          }
+        }
+      }
+
+      // Cihaz Bilgileri
+      if (cmd.includes('cihaz türü') || cmd.includes('tür')) {
+        const val = cmd.replace('cihaz türü', '').replace('tür', '').trim();
+        if (val.includes('telefon') || val.includes('cep')) handleSelectChangeRef.current("deviceType", "Telefon");
+        else if (val.includes('tablet')) handleSelectChangeRef.current("deviceType", "Tablet");
+        else if (val.includes('bilgisayar') || val.includes('laptop')) handleSelectChangeRef.current("deviceType", "Bilgisayar");
+        else if (val.includes('diğer')) handleSelectChangeRef.current("deviceType", "Diğer");
+        return;
+      }
+
+      if (cmd.startsWith('marka')) {
+        const val = capitalizeText(cleanVoiceValue(command, ['marka']));
+        if (val) {
+          setFormData(prev => ({ ...prev, brand: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Marka: ${val}` });
+          return;
+        }
+      }
+
+      if (cmd.startsWith('model')) {
+        const val = cleanVoiceValue(command, ['model']).toUpperCase();
+        if (val) {
+          setFormData(prev => ({ ...prev, model: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Model: ${val}` });
+          return;
+        }
+      }
+
+      if (cmd.includes('seri no') || cmd.includes('seri numarası')) {
+        const val = cleanVoiceValue(command, ['seri no', 'seri numarası']).toUpperCase();
+        if (val) {
+          setFormData(prev => ({ ...prev, serialNumber: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Seri No: ${val}` });
+          return;
+        }
+      }
+
+      if (cmd.includes('şikayet') || cmd.includes('sorun')) {
+        const val = cleanVoiceValue(command, ['şikayet', 'sorun', 'şikayeti', 'sorunu']);
+        if (val) {
+          setFormData(prev => ({ ...prev, problem: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Şikayet: ${val}` });
+          return;
+        }
+      }
+
+      if (cmd.includes('teşhis') || cmd.includes('tanı')) {
+        const val = cleanVoiceValue(command, ['teşhis', 'tanı', 'teşhisi', 'tanısı']);
+        if (val) {
+          setFormData(prev => ({ ...prev, diagnosis: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Teşhis: ${val}` });
+          return;
+        }
+      }
+
+      if (cmd.includes('yapılan işlem') || cmd.includes('notlar') || cmd.includes('not')) {
+        const val = cleanVoiceValue(command, ['yapılan işlem', 'işlem', 'notlar', 'not']);
+        if (val) {
+          setFormData(prev => ({ ...prev, solution: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `İşlem/Not: ${val}` });
+          return;
+        }
+      }
+
+      // Durum Seçimi
+      if (cmd.includes('durum')) {
+        const val = cmd.replace('durum', '').trim();
+        if (val.includes('beklemed')) handleStatusChangeRef.current("pending");
+        else if (val.includes('işlemde')) handleStatusChangeRef.current("in_progress");
+        else if (val.includes('tamam')) handleStatusChangeRef.current("completed");
+        else if (val.includes('iptal')) handleStatusChangeRef.current("cancelled");
+        return;
+      }
+
+      // Akıllı Tahmin (Marka/Model tespiti)
+      const commonBrands = ['apple', 'samsung', 'huawei', 'xiaomi', 'oppo', 'vivo', 'realme', 'poco', 'sony', 'lg', 'asus', 'hp', 'dell', 'lenovo', 'casper', 'vestel', 'reeder'];
+      const words = cmd.split(' ');
+      const detectedBrand = commonBrands.find(b => words.includes(b));
+
+      if (detectedBrand) {
+        const capBrand = detectedBrand.charAt(0).toUpperCase() + detectedBrand.slice(1);
+        setFormData(prev => ({ ...prev, brand: capBrand }));
+
+        const brandIdx = words.indexOf(detectedBrand);
+        if (words[brandIdx + 1]) {
+          const modelVal = words.slice(brandIdx + 1).filter(w => !['telefon', 'tablet', 'bilgisayar'].includes(w)).join(' ');
+          if (modelVal) {
+            setFormData(prev => ({ ...prev, model: modelVal.toUpperCase() }));
+          }
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('voice-command', handleVoiceCommand as EventListener);
+    return () => window.removeEventListener('voice-command', handleVoiceCommand as EventListener);
+  }, [isOpen]);
 
   const handleCompleteService = async () => {
     if (!editingService || editingService.status !== 'completed') { toast({ title: "Uyarı", description: "Sadece durumu 'Tamamlandı' olan servisler için işlem yapılabilir.", variant: "default" }); return; }
@@ -771,113 +932,16 @@ const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           </TabsContent>
 
           <TabsContent value="payments" className="flex-1 overflow-hidden flex flex-col mt-0 p-6 bg-black/20">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-              {/* Payment Form */}
-              <div className="lg:col-span-1 space-y-4">
-                <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-4">
-                  <Label className="text-sm font-bold text-emerald-400 border-b border-emerald-500/20 pb-2 flex items-center gap-2">
-                    <Wallet className="h-4 w-4" /> Ödeme Al / Kapora
-                  </Label>
-
-                  <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-gray-400">Tutar</Label>
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          value={paymentAmount}
-                          onChange={(e) => setPaymentAmount(e.target.value)}
-                          className="pl-8 bg-black/40 border-white/10 text-white"
-                          placeholder="0.00"
-                        />
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₺</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-gray-400">Hesap</Label>
-                      <Select value={paymentAccountId} onValueChange={setPaymentAccountId}>
-                        <SelectTrigger className="bg-black/40 border-white/10 text-white">
-                          <SelectValue placeholder="Hesap seçin..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                          {accounts.map(acc => (
-                            <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.type === 'credit_card' ? 'K.Kartı' : 'Nakit'})</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-gray-400">Açıklama</Label>
-                      <Textarea
-                        value={paymentDescription}
-                        onChange={(e) => setPaymentDescription(e.target.value)}
-                        className="bg-black/40 border-white/10 text-white text-xs min-h-[60px]"
-                      />
-                    </div>
-
-                    <Button onClick={handleAddPayment} disabled={isAddingPayment} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
-                      {isAddingPayment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
-                      Ödeme Ekle
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400">Servis Tutarı:</span>
-                    <span className="font-mono font-bold text-white">{formatCurrency(cost)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400">Ödenen:</span>
-                    <span className="font-mono font-bold text-emerald-400">{formatCurrency(totalPaid)}</span>
-                  </div>
-                  <div className="border-t border-white/10 pt-2 flex justify-between items-center">
-                    <span className="text-gray-300 font-medium">Kalan:</span>
-                    <span className={cn("font-mono font-bold text-lg", remainingDebt > 0 ? "text-red-400" : "text-gray-400")}>
-                      {formatCurrency(remainingDebt)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Transactions List */}
-              <div className="lg:col-span-2 bg-white/5 rounded-xl border border-white/5 flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-200 flex items-center gap-2">
-                    <History className="h-4 w-4 text-blue-400" /> Ödeme Geçmişi
-                  </h3>
-                </div>
-                <div className="flex-1 overflow-y-auto p-0">
-                  {transactions.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500 py-10">
-                      <CreditCard className="h-10 w-10 opacity-20 mb-2" />
-                      <p>Henüz ödeme alınmamış.</p>
-                    </div>
-                  ) : (
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-black/20 text-gray-400 sticky top-0">
-                        <tr>
-                          <th className="p-3 font-medium">Tarih</th>
-                          <th className="p-3 font-medium">Açıklama</th>
-                          <th className="p-3 font-medium text-right">Tutar</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {transactions.map((tx) => (
-                          <tr key={tx.id} className="hover:bg-white/5">
-                            <td className="p-3 text-gray-300">{format(new Date(tx.date), 'dd.MM.yyyy HH:mm')}</td>
-                            <td className="p-3 text-gray-300">{tx.description}</td>
-                            <td className="p-3 text-emerald-400 text-right font-mono font-medium">{formatCurrency(tx.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
+            <ServicePaymentPanel
+              accounts={accounts}
+              transactions={displayTransactions}
+              totalPaid={totalPaid}
+              cost={cost}
+              remainingDebt={remainingDebt}
+              isAddingPayment={isAddingPayment}
+              onAddPayment={handleAddPayment}
+              formatCurrency={(val) => formatCurrency(val)}
+            />
           </TabsContent>
         </Tabs>
 

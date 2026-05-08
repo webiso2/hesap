@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { format, subDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { TrendingUp, Users, Package, AlertTriangle, DollarSign, ShoppingCart, Activity, Database, BarChart3 } from 'lucide-react';
+import { TrendingUp, Users, Package, AlertTriangle, DollarSign, ShoppingCart, Activity, Database, BarChart3, Calculator } from 'lucide-react';
 import { useSales, useAccountTransactions, useProducts, useCustomers } from '@/hooks/useAppData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -177,6 +177,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onModuleSelect }) => {
 
                 {/* Hızlı İşlemler */}
                 {/* Hızlı İşlemler */}
+
+
+                {/* Hızlı İşlemler */}
                 <Card className="col-span-3 glass-card border-none text-white">
                     <CardHeader>
                         <CardTitle className="text-lg font-bold text-gray-200">Hızlı İşlemler</CardTitle>
@@ -199,6 +202,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onModuleSelect }) => {
                                 <Database className="h-6 w-6 text-emerald-400" />
                             </div>
                             <div className="text-left"><div className="font-bold text-base">Stok Yönetimi</div><div className="text-xs text-emerald-200/70">Ürün ve stok işlemleri</div></div>
+                        </Button>
+                        <Button onClick={() => onModuleSelect?.('calculator')} className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-500/30 justify-start h-14 rounded-lg transition-all duration-300 group">
+                            <div className="bg-indigo-500/20 p-2 rounded-md mr-3 group-hover:bg-indigo-500/30 transition-colors">
+                                <Calculator className="h-6 w-6 text-indigo-400" />
+                            </div>
+                            <div className="text-left"><div className="font-bold text-base">Fiyat Hesaplama</div><div className="text-xs text-indigo-200/70">Kar ve vergi analizi</div></div>
                         </Button>
                         <Button onClick={() => onModuleSelect?.('cashier')} className="bg-orange-600/20 hover:bg-orange-600/40 text-orange-100 border border-orange-500/30 justify-start h-14 rounded-lg transition-all duration-300 group">
                             <div className="bg-orange-500/20 p-2 rounded-md mr-3 group-hover:bg-orange-500/30 transition-colors">

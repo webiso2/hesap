@@ -1,6 +1,6 @@
 // --- START OF FILE src/CustomerModule.tsx ---
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Loader2, User, Users } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,15 +18,19 @@ import type { Account } from "@/types/backup";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCustomers, useAccounts } from "@/hooks/useAppData";
 import { formatPhoneNumber } from "@/utils/customerUtils";
+import { cleanVoiceValue, isDeleteIntent, capitalizeText, cleanPhoneNumber as voiceCleanPhone } from "@/utils/voiceUtils";
 
 const initialFormData: FormData = {
   name: "", phone: "", address: "", city: "", email: "", notes: "", credit_limit: "0",
 };
 
-interface CustomerModuleProps { onClose: () => void; }
+interface CustomerModuleProps {
+  onClose: () => void;
+  initialData?: { name?: string; phone?: string }; // Keep for now if called with props, though unused by voice
+}
 
-const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
-  const [formData, setFormData] = useState<FormData>(initialFormData);
+const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose, initialData }) => {
+  const [formData, setFormData] = useState<FormData>(initialData ? { ...initialFormData, name: initialData.name || "", phone: initialData.phone || "" } : initialFormData);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -56,6 +60,8 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+
+
   const handleCustomerSelect = useCallback((customer: Customer) => {
     if (isEditing) {
       console.warn("Düzenleme modunda müşteri seçimi engellendi.");
@@ -83,27 +89,36 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
   }, [isEditing]);
 
   const prepareDataForSupabase = (data: FormData) => {
+    console.log("[prepareDataForSupabase] Veri hazırlanıyor:", data);
     const formattedPhone = formatPhoneNumber(data.phone);
+
+    // Geçersiz format uyarısı ver ama kaydı durdurma (eğer numara varsa - formatPhoneNumber geçersizse null döner)
     if (data.phone && !formattedPhone && data.phone.trim() !== '') {
-      toast({ title: "Uyarı", description: "Geçersiz telefon numarası formatı. (Örn: 5xxxxxxxxx veya boş bırakın)", variant: "destructive" });
-      return null;
+      console.warn("[prepareDataForSupabase] Telefon formatı eşleşmedi, ham veri kullanılacak:", data.phone);
+      // toast({ title: "Bilgi", description: "Telefon formatı tam anlaşılamadı, olduğu gibi kaydediliyor.", variant: "default" });
     }
+
     if (!data.name.trim()) {
+      console.error("[prepareDataForSupabase] HATA: Müşteri adı boş!");
       toast({ title: "Uyarı", description: "Müşteri adı zorunludur.", variant: "destructive" });
       return null;
     }
-    return {
+
+    const prepared = {
       name: data.name.trim(),
-      phone: formattedPhone,
+      phone: formattedPhone || data.phone?.trim() || null, // Formatlı yoksa ham veriyi kullan
       address: data.address?.trim() || null,
       city: data.city?.trim() || null,
       email: data.email?.trim().toLowerCase() || null,
       notes: data.notes?.trim() || null,
       credit_limit: parseFloat(data.credit_limit) || 0,
     };
+
+    console.log("[prepareDataForSupabase] Hazırlanan veri:", prepared);
+    return prepared;
   };
 
-  const handleAddCustomer = async () => {
+  const handleAddCustomer = useCallback(async () => {
     if (isEditing) return;
     const customerData = prepareDataForSupabase(formData);
     if (!customerData) return;
@@ -126,30 +141,9 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [isEditing, formData, queryClient, toast]);
 
-  const handleEditClick = () => {
-    if (!isEditing) {
-      if (!selectedCustomer) {
-        toast({ title: "Bilgi", description: "Lütfen düzenlemek için bir müşteri seçin.", variant: "default" });
-        setFormData(initialFormData);
-        return;
-      }
-      setIsEditing(true);
-      setEditingCustomerId(selectedCustomer.id);
-    } else {
-      handleUpdateCustomer();
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditingCustomerId(null);
-    setSelectedCustomer(null);
-    setFormData(initialFormData);
-  };
-
-  const handleUpdateCustomer = async () => {
+  const handleUpdateCustomer = useCallback(async () => {
     if (!editingCustomerId || !isEditing) return;
     const customerData = prepareDataForSupabase(formData);
     if (!customerData) return;
@@ -173,9 +167,30 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [editingCustomerId, isEditing, formData, queryClient, toast]);
 
-  const handleDeleteCustomer = async () => {
+  const handleEditClick = useCallback(() => {
+    if (!isEditing) {
+      if (!selectedCustomer) {
+        toast({ title: "Bilgi", description: "Lütfen düzenlemek için bir müşteri seçin.", variant: "default" });
+        setFormData(initialFormData);
+        return;
+      }
+      setIsEditing(true);
+      setEditingCustomerId(selectedCustomer.id);
+    } else {
+      handleUpdateCustomer();
+    }
+  }, [isEditing, selectedCustomer, handleUpdateCustomer, toast]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setEditingCustomerId(null);
+    setSelectedCustomer(null);
+    setFormData(initialFormData);
+  }, []);
+
+  const handleDeleteCustomer = useCallback(async () => {
     if (!selectedCustomer || isEditing) return;
     if (!window.confirm(`"${selectedCustomer.name}" isimli müşteriyi silmek istediğinizden emin misiniz?\nBu işlem geri alınamaz!`)) return;
 
@@ -199,26 +214,26 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [selectedCustomer, isEditing, queryClient, toast]);
 
-  const handleAddDebt = () => {
+  const handleAddDebt = useCallback(() => {
     if (!selectedCustomer) { toast({ title: "Uyarı", description: "Lütfen önce borç eklenecek müşteriyi seçin.", variant: "destructive" }); return; }
     if (isEditing) { toast({ title: "Uyarı", description: "Müşteri düzenleme modundayken borç eklenemez.", variant: "destructive" }); return; }
     setIsAddDebtDialogOpen(true);
-  };
+  }, [selectedCustomer, isEditing]);
 
-  const handlePayment = () => {
+  const handlePayment = useCallback(() => {
     if (!selectedCustomer) { toast({ title: "Uyarı", description: "Lütfen önce tahsilat yapılacak müşteriyi seçin.", variant: "destructive" }); return; }
     if (isEditing) { toast({ title: "Uyarı", description: "Müşteri düzenleme modundayken tahsilat yapılamaz.", variant: "destructive" }); return; }
     if (selectedCustomer.debt <= 0) { toast({ title: "Bilgi", description: "Müşterinin tahsilat yapılacak borcu bulunmamaktadır.", variant: "default" }); return; }
     setIsPaymentDialogOpen(true);
-  };
+  }, [selectedCustomer, isEditing]);
 
-  const handleDebtDetailsClick = (customer: Customer | null) => {
+  const handleDebtDetailsClick = useCallback((customer: Customer | null) => {
     if (!customer) { toast({ title: "Uyarı", description: "Lütfen önce bir müşteri seçin.", variant: "destructive" }); return; }
     if (isEditing) { toast({ title: "Uyarı", description: "Müşteri düzenleme modundayken borç detayı görüntülenemez.", variant: "destructive" }); return; }
     setDebtDetailsOpen(true);
-  };
+  }, [isEditing]);
 
   const handleTransactionUpdate = useCallback((updatedCustomerId: string, newDebt: number) => {
     queryClient.setQueryData(['customers'], (oldData: Customer[] | undefined) => {
@@ -230,7 +245,161 @@ const CustomerModule: React.FC<CustomerModuleProps> = ({ onClose }) => {
         prevSelected ? { ...prevSelected, debt: newDebt } : null
       );
     }
-  }, [selectedCustomer?.id]);
+  }, [selectedCustomer?.id, queryClient]);
+
+  // Voice Command Refs to avoid stale closures
+  const addCustomerRef = useRef(handleAddCustomer);
+  const updateCustomerRef = useRef(handleUpdateCustomer);
+  const editClickRef = useRef(handleEditClick);
+  const cancelEditRef = useRef(handleCancelEdit);
+  const deleteCustomerRef = useRef(handleDeleteCustomer);
+  const addDebtRef = useRef(handleAddDebt);
+  const paymentRef = useRef(handlePayment);
+  const debtDetailsRef = useRef(handleDebtDetailsClick);
+  const isEditingRef = useRef(isEditing);
+  const selectedCustomerRef = useRef(selectedCustomer);
+  const setFormDataRef = useRef(setFormData);
+  const toastRef = useRef(toast);
+
+  useEffect(() => {
+    addCustomerRef.current = handleAddCustomer;
+    updateCustomerRef.current = handleUpdateCustomer;
+    editClickRef.current = handleEditClick;
+    cancelEditRef.current = handleCancelEdit;
+    deleteCustomerRef.current = handleDeleteCustomer;
+    addDebtRef.current = handleAddDebt;
+    paymentRef.current = handlePayment;
+    debtDetailsRef.current = handleDebtDetailsClick;
+    isEditingRef.current = isEditing;
+    selectedCustomerRef.current = selectedCustomer;
+    setFormDataRef.current = setFormData;
+    toastRef.current = toast;
+  }, [handleAddCustomer, handleUpdateCustomer, handleEditClick, handleCancelEdit, handleDeleteCustomer, handleAddDebt, handlePayment, handleDebtDetailsClick, isEditing, selectedCustomer, toast]);
+
+  useEffect(() => {
+    const handleVoiceCommand = (e: any) => {
+      const { command, handledByButton } = e.detail;
+      if (handledByButton) return; // Buton olarak işlendiyse burada tekrar işleme
+
+      const cmd = command.toLowerCase().trim();
+      console.log("CustomerModule'da işleniyor:", cmd);
+
+      // --- SİLME / TEMİZLEME KOMUTLARI ---
+      if (isDeleteIntent(cmd, ['müşteri adı', 'isim', 'adı', 'ismi'])) {
+        setFormDataRef.current(prev => ({ ...prev, name: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Müşteri adı silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['telefon', 'numara', 'cep'])) {
+        setFormDataRef.current(prev => ({ ...prev, phone: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Telefon numarası silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['adres'])) {
+        setFormDataRef.current(prev => ({ ...prev, address: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Adres silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['şehir'])) {
+        setFormDataRef.current(prev => ({ ...prev, city: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Şehir silindi." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['limit', 'kredi'])) {
+        setFormDataRef.current(prev => ({ ...prev, credit_limit: "0" }));
+        toastRef.current({ title: "Sesli Komut", description: "Kredi limiti sıfırlandı." });
+        return;
+      }
+      if (isDeleteIntent(cmd, ['not'])) {
+        setFormDataRef.current(prev => ({ ...prev, notes: "" }));
+        toastRef.current({ title: "Sesli Komut", description: "Notlar silindi." });
+        return;
+      }
+
+      // --- VERİ GİRİŞ KOMUTLARI ---
+
+      // Müşteri Adı
+      if (cmd.includes('müşteri adı') || cmd.startsWith('isim') || cmd.startsWith('adı')) {
+        const val = capitalizeText(cleanVoiceValue(command, ['müşteri adı', 'isim', 'adı', 'ismi']));
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, name: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Müşteri Adı: ${val}` });
+          return;
+        }
+      }
+
+      // Telefon
+      if (cmd.includes('telefon') || cmd.includes('numara')) {
+        const val = voiceCleanPhone(cleanVoiceValue(command, ['telefon', 'numara', 'numarası']));
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, phone: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Telefon: ${val}` });
+          return;
+        }
+      }
+
+      // Adres
+      if (cmd.startsWith('adres')) {
+        const val = cleanVoiceValue(command, ['adres']);
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, address: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Adres: ${val}` });
+          return;
+        }
+      }
+
+      // Şehir
+      if (cmd.startsWith('şehir')) {
+        const val = capitalizeText(cleanVoiceValue(command, ['şehir']));
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, city: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Şehir: ${val}` });
+          return;
+        }
+      }
+
+      // E-posta
+      if (cmd.startsWith('e-posta') || cmd.startsWith('eposta') || cmd.startsWith('mail')) {
+        const val = cleanVoiceValue(command, ['e-posta', 'eposta', 'mail', 'e posta']).replace(/\s/g, '').toLowerCase();
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, email: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `E-posta: ${val}` });
+          return;
+        }
+      }
+
+      // Özel Notlar
+      if (cmd.includes('notlar') || cmd.includes('not')) {
+        const val = cleanVoiceValue(command, ['özel notlar', 'notlar', 'not']);
+        if (val) {
+          setFormDataRef.current(prev => ({ ...prev, notes: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Notlar: ${val}` });
+          return;
+        }
+      }
+
+      // Kredi Limiti
+      if (cmd.includes('kredi limiti') || cmd.includes('limit')) {
+        const val = cleanVoiceValue(command, ['kredi limiti', 'limit', 'limiti']).replace(',', '.').replace(/\s/g, '');
+        if (val && !isNaN(parseFloat(val))) {
+          setFormDataRef.current(prev => ({ ...prev, credit_limit: val }));
+          toastRef.current({ title: "Sesli Giriş", description: `Kredi Limiti: ${val}` });
+          return;
+        }
+      }
+
+      // Akıllı Tahmin (fallback)
+      const digitsOnly = cmd.replace(/\s/g, '');
+      if (/^\d{7,15}$/.test(digitsOnly) || (digitsOnly.length >= 10 && digitsOnly.startsWith('5'))) {
+        setFormDataRef.current(prev => ({ ...prev, phone: digitsOnly }));
+        toastRef.current({ title: "Akıllı Giriş", description: `Telefon algılandı: ${digitsOnly}` });
+        return;
+      }
+    };
+
+    window.addEventListener('voice-command', handleVoiceCommand as any);
+    return () => window.removeEventListener('voice-command', handleVoiceCommand as any);
+  }, [selectedCustomer, handleDebtDetailsClick, handleAddDebt, handlePayment, handleEditClick, handleDeleteCustomer, handleCancelEdit, toast]);
 
   return (
     <div className="h-full flex flex-col p-2 sm:p-4 overflow-hidden animate-in fade-in duration-300">

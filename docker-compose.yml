@@ -1,0 +1,31 @@
+version: '3.9'
+services:
+  gsmservis:
+    container_name: gsmservis
+    image: gsmservis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '8085:80'
+    restart: always
+    environment:
+      - VITE_SUPABASE_URL=https://nsftazewqgcugkeetvgy.supabase.co
+      - VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zZnRhemV3cWdjdWdrZWV0dmd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMwNTkzMzQsImV4cCI6MjA1ODYzNTMzNH0.FC_QS1qXC53oNnsQ0a2PIkoHESzDJfGofjDAJJeUhvM
+    x-casaos:
+      architectures:
+        - amd64
+        - arm64
+      main: gsmservis
+      description:
+        en_us: GSM Servis Management Application
+      tagline:
+        en_us: GSM teknik servis ve stok yönetim sistemi
+      developer: webiso
+      author: webiso
+      icon: https://raw.githubusercontent.com/IceWhaleTech/CasaOS-AppStore/main/Apps/App_Icon.png
+      thumbnail: ""
+      title:
+        en_us: gsmservis
+      category: Management
+      port_map: "8085"

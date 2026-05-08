@@ -9,6 +9,7 @@ import TrackingPage from "./pages/TrackingPage";
 
 import { queryClient } from "@/lib/react-query";
 
+
 import { useEffect } from "react";
 import { getSettings } from "@/utils/settingsUtils";
 
