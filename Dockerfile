@@ -3,11 +3,11 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # Paket yöneticisi pnpm'i aktif ediyoruz (Corepack Node.js ile birlikte gelir)
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Bağımlılıkları kopyalayıp yüklüyoruz
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --no-frozen-lockfile --ignore-scripts=false
+RUN pnpm install --no-frozen-lockfile
 
 # Tüm kodu kopyalayıp build alıyoruz
 COPY . .
