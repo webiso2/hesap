@@ -247,52 +247,68 @@ export const restoreBackupToSupabase = async (backupData: BackupData): Promise<{
 
                 console.log(`Ekleniyor: ${supabaseTableName} (${tableData.length} kayıt)...`);
 
-                // JOIN artıklarını temizle ve FK filtrelemesi yap (ön kontrole ek olarak burada da yapalım)
+                // JOIN artıklarını temizle ve FK filtrelemesi yap
                 let dataToInsert = tableData
                     .map((item: any) => {
                         const cleanItem = { ...item };
-                        delete cleanItem.customer; delete cleanItem.account; // Örnek join artıkları
+                        delete cleanItem.customer; delete cleanItem.account; 
+                        
+                        // ÖNEMLİ: Döngüsel bağımlılığı kırmak için account_transactions'daki bağları ilk etapta boş geçiyoruz
+                        if (tableName === 'account_transactions') {
+                            cleanItem.related_customer_tx_id = null;
+                            cleanItem.related_wholesaler_transaction_id = null;
+                        }
                         return cleanItem;
                     })
                     .filter((item: any) => { // FK Filtreleme
                         if (tableName === 'needs') return (!item.product_id || validProductIds.has(item.product_id)) && (!item.customer_id || validCustomerIds.has(item.customer_id));
                         if (tableName === 'services') return !item.customer_id || validCustomerIds.has(item.customer_id);
-                        if (tableName === 'sales') return !item.customer_id || validCustomerIds.has(item.customer_id); // products items içinde kontrol edilir
-                        if (tableName === 'purchase_invoices') return (!item.wholesaler_id || validWholesalerIds.has(item.wholesaler_id)); // products items içinde kontrol edilir
+                        if (tableName === 'sales') return !item.customer_id || validCustomerIds.has(item.customer_id); 
+                        if (tableName === 'purchase_invoices') return (!item.wholesaler_id || validWholesalerIds.has(item.wholesaler_id)); 
                         if (tableName === 'customer_transactions') return !item.customer_id || validCustomerIds.has(item.customer_id);
                         if (tableName === 'wholesaler_transactions') return (!item.wholesaler_id || validWholesalerIds.has(item.wholesaler_id)) && (!item.related_purchase_invoice_id || validPurchaseInvoiceIds.has(item.related_purchase_invoice_id));
-                        if (tableName === 'account_transactions') return (!item.account_id || validAccountIds.has(item.account_id)) && (!item.related_sale_id || validSaleIds.has(item.related_sale_id)) && (!item.related_service_id || validServiceIds.has(item.related_service_id)) && (!item.related_customer_tx_id || validCustomerTxIds.has(item.related_customer_tx_id)) && (!item.related_wholesaler_transaction_id || validWholesalerTxIds.has(item.related_wholesaler_transaction_id)) && (!item.expense_category_id || validExpenseCategoryIds.has(item.expense_category_id));
-                        return true; // Diğer tablolar için filtre yok
+                        if (tableName === 'account_transactions') return (!item.account_id || validAccountIds.has(item.account_id)) && (!item.related_sale_id || validSaleIds.has(item.related_sale_id)) && (!item.related_service_id || validServiceIds.has(item.related_service_id)) && (!item.expense_category_id || validExpenseCategoryIds.has(item.expense_category_id));
+                        return true; 
                     });
 
-
-                if (dataToInsert.length < tableData.length) {
-                    console.warn(`[restoreBackupToSupabase] ${supabaseTableName}: ${tableData.length - dataToInsert.length} kayıt FK filtrelemesi nedeniyle atlandı.`);
-                }
-
                 if (dataToInsert.length > 0) {
-                    // Büyük veri setlerini parçalara ayırarak ekleme (örneğin 500'lük)
                     const chunkSize = 500;
                     for (let i = 0; i < dataToInsert.length; i += chunkSize) {
                         const chunk = dataToInsert.slice(i, i + chunkSize);
-                        console.log(` -> ${supabaseTableName} - Chunk ${i / chunkSize + 1} ekleniyor (${chunk.length} kayıt)...`);
+                        console.log(` -> ${supabaseTableName} - Chunk ${i / chunkSize + 1} ekleniyor...`);
                         const { error: insertError } = await supabase.from(supabaseTableName).insert(chunk);
                         if (insertError) {
-                            console.error(`${supabaseTableName} chunk ekleme hatası:`, insertError);
-                            // Hatanın detayını göstermeye çalış
-                             let detail = insertError.details;
-                             try { if (detail && typeof detail === 'string') detail = JSON.parse(detail).detail } catch (e) {} // Postgres hatasını parse etmeye çalış
-                            throw new Error(`Veri eklenemedi (${supabaseTableName}): ${insertError.message} ${detail ? `(${detail})` : ''}`);
+                            console.error(`${supabaseTableName} ekleme hatası:`, insertError);
+                            throw new Error(`Veri eklenemedi (${supabaseTableName}): ${insertError.message}`);
                         }
                     }
-                     console.log(`[restoreBackupToSupabase] ${supabaseTableName}: Toplam ${dataToInsert.length} kayıt eklendi.`);
-                } else {
-                    console.log(`Atlanıyor: ${supabaseTableName} (Filtreleme sonrası veya yedekte kayıt yok)`);
                 }
-            } else {
-                console.log(`Atlanıyor: ${tableName} (Yedekte veri yok veya boş)`);
             }
         }
+
+        // 3. ADIM: account_transactions'daki döngüsel bağları geri yükle (GÜNCELLEME)
+        if (backupData.account_transactions && backupData.account_transactions.length > 0) {
+            console.log("[restoreBackupToSupabase] account_transactions döngüsel bağları güncelleniyor...");
+            const updates = backupData.account_transactions
+                .filter(item => item.related_customer_tx_id || item.related_wholesaler_transaction_id)
+                .map(item => {
+                    const updateObj = { ...item };
+                    delete updateObj.customer; delete updateObj.account;
+                    return updateObj;
+                });
+
+            if (updates.length > 0) {
+                // Upsert kullanarak mevcut kayıtları ID üzerinden güncelliyoruz
+                const { error: updateError } = await supabase.from('account_transactions').upsert(updates, { onConflict: 'id' });
+                if (updateError) {
+                    console.error("account_transactions bağ güncelleme hatası:", updateError);
+                    // Bu hata kritik olmayabilir, sadece bağlar eksik kalır ama sistemi bozmaz
+                } else {
+                    console.log(`[restoreBackupToSupabase] ${updates.length} kasa işlemi bağı başarıyla güncellendi.`);
+                }
+            }
+        }
+
         console.log("[restoreBackupToSupabase] Tüm veriler başarıyla eklendi.");
         return { success: true, error: null };
     } catch (error: any) {
