@@ -2,8 +2,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
-# Paket yöneticisi pnpm'i aktif ediyoruz (Corepack Node.js ile birlikte gelir)
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# Pnpm'i npm üzerinden kuruyoruz (bağlantı hatasını önlemek için)
+RUN npm install -g pnpm@9
 
 # Bağımlılıkları kopyalayıp yüklüyoruz
 COPY package.json pnpm-lock.yaml ./
